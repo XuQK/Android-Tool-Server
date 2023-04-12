@@ -1,69 +1,89 @@
 "use strict";
 
 import * as http from "http";
-import * as svgOptimizer from "./svg-optimizer.js";
-import * as webpConvertor from "./webp-convertor.js";
-import * as url from "node:url";
+import * as svgOptimizer from "./svgOptimizer.js";
+import * as webpConvertor from "./webpConvertor.js";
+import url from "node:url";
 
 const server = http.createServer((req, res) => {
+    setCorsHead(res);
     switch (req.method) {
         case "OPTIONS": {
-            res.writeHead(204, http.STATUS_CODES[204], {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST",
-                "Access-Control-Allow-Headers": "Content-Type"
-            });
+            res.writeHead(204, http.STATUS_CODES[204]);
             res.end();
             break;
         }
         case "POST": {
-            handlePost(req, res);
+            handlePost(req, res).then(r => {});
             break;
         }
         default:
-            urlNoMatch(res);
+            reply404(res);
     }
 });
 
 /**
  * 处理 Post 请求
  * @param {InstanceType<typeof IncomingMessage>} req
- * @param {InstanceType<typeof ServerResponse> & {req: InstanceType<typeof IncomingMessage>}} res
+ * @param {ServerResponse} res
  */
-function handlePost(req, res) {
+async function handlePost(req, res) {
     console.log(`处理请求：${req.url}`);
     const body = [];
     req.on("data", chunk => {
         body.push(chunk);
     });
-    req.on("end", () => {
-        switch (url.parse(req.url).pathname) {
-            case "/svg-optimizer": {
-                svgOptimizer.runSvgOptimizer(req, res, Buffer.concat(body)).then();
-                break;
+    req.on("end", async () => {
+        try {
+            const bodyBuffer = Buffer.concat(body);
+            switch (url.parse(req.url).pathname) {
+                case "/svgOptimizer": {
+                    const responseBody = svgOptimizer.getResponse(bodyBuffer);
+                    res.writeHead(200, {
+                        "Content-Type": "application/json"
+                    })
+                    res.end(responseBody)
+                    return;
+                }
+                case "/pngConvertWebp": {
+                    /** @type string */
+                    const quality = req.headers["quality"]
+                    const responseBody = await webpConvertor.getResponse(parseInt(quality), bodyBuffer)
+                    res.writeHead(200, {
+                        "Content-Type": "application/octet-stream"
+                    })
+                    res.end(responseBody)
+                    break;
+                }
+                default: {
+                    reply404(res);
+                    return;
+                }
             }
-            case "/png-convert-webp": {
-                webpConvertor.runPngConvertToWebp(req, res, Buffer.concat(body)).then();
-                break;
-            }
-            default: {
-                urlNoMatch(res);
-                return;
-            }
+        } catch (e) {
+            console.error(e);
+            reply404(res)
         }
     });
+}
+
+/**
+ * 给 response 添加跨域 header
+ * @param res {ServerResponse}
+ */
+function setCorsHead(res) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
 /**
  * 处理 url 没有处理的情况
  * @param res {ServerResponse}
  */
-function urlNoMatch(res) {
+function reply404(res) {
     res.writeHead(404, http.STATUS_CODES[404], {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST",
-        "Access-Control-Allow-Headers": "Content-Type"
+        "Content-Type": "text/plain",
     });
     res.end();
 }
